@@ -9,6 +9,9 @@ CONFIG -= app_bundle
 
 TEMPLATE = app
 
+target.path = /usr/local/bin/pstcpserver
+INSTALLS += target
+
 INCLUDEPATH += /usr/local/include/sphinxbase/
 INCLUDEPATH += /usr/local/include/pocketsphinx/
 
