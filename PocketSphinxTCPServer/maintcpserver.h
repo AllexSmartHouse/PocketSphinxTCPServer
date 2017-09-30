@@ -11,7 +11,7 @@ class MainTCPServer : public QTcpServer
 {
     Q_OBJECT
 protected:
-    static const int DELETE_TIMEOUT = 60000;
+    static const int DELETE_TIMEOUT = 86400000;
     static const int DELETE_TIMEOUT_STEP = 10000;
     QList<sRecognitionModule*> m_ActiveDecorders;
     QTimer              m_GCTimer;
@@ -28,7 +28,8 @@ signals:
 
 public slots:
 protected slots:
-    void updateActiveDecoders();
+    void updateActiveDecoders(bool forceCreation);
+    void onTimeout();
 protected:
     void incomingConnection(qintptr socketDescriptor);
 };

@@ -1,7 +1,7 @@
 #include "maintcpserver.h"
 #include <QMutableListIterator>
 
-void MainTCPServer::updateActiveDecoders()
+void MainTCPServer::updateActiveDecoders(bool forceCreation)
 {
     bool activeDecoderAvailable = false;
     int i = 0;
@@ -23,7 +23,7 @@ void MainTCPServer::updateActiveDecoders()
             ++i;
     }
 
-    if (!activeDecoderAvailable){
+    if (!activeDecoderAvailable && forceCreation){
         qDebug() << "creating new decoder";
         sRecognitionModule* mod = new sRecognitionModule;
         mod->inUse = false;
@@ -34,6 +34,11 @@ void MainTCPServer::updateActiveDecoders()
     }
 }
 
+void MainTCPServer::onTimeout()
+{
+    updateActiveDecoders(false);
+}
+
 sRecognitionModule *MainTCPServer::getAvailableDecoder()
 {
     for (int i = 0; i<m_ActiveDecorders.size(); i++){
@@ -42,7 +47,7 @@ sRecognitionModule *MainTCPServer::getAvailableDecoder()
             return mod;
         }
     }
-    updateActiveDecoders();
+    updateActiveDecoders(true);
     return getAvailableDecoder();
 }
 
@@ -51,9 +56,9 @@ MainTCPServer::MainTCPServer(cmd_ln_t *config, int port)
     , m_DecoderConfig(config)
     , m_Port(port)
 {
-    updateActiveDecoders();
+    updateActiveDecoders(true);
 
-    connect(&m_GCTimer,SIGNAL(timeout()),this,SLOT(updateActiveDecoders()));
+    connect(&m_GCTimer,SIGNAL(timeout()),this,SLOT(onTimeout));
     m_GCTimer.start(DELETE_TIMEOUT_STEP);
 }
 
