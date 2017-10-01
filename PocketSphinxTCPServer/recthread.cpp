@@ -1,17 +1,24 @@
 #include "recthread.h"
 #include <QDataStream>
+#include <QFile>
+#include <QTemporaryFile>
 
-const QByteArray RecThread::PACKAGE_IN_ID("SNDR");
+const int PACKAGE_ID_SIZE = 4;
+const QByteArray RecThread::PACKAGE_IN_STREAM_ID("SNDR");
+const QByteArray RecThread::PACKAGE_IN_DIC_ID("LDIC");
 const QByteArray RecThread::PACKAGE_OUT_ID("BHYP");
 
-RecThread::RecThread(qintptr ID, sRecognitionModule *module, QObject *parent)
+RecThread::RecThread(qintptr ID, sRecognitionModule *module, QString defaultDicFileName, QObject *parent)
     :QThread(parent)
+    ,m_CustomDicLoaded(false)
+    ,m_DefaultDicFileName(defaultDicFileName)
     ,m_Module(module)
     ,m_SocketDescriptor(ID)
+
 {
     ps_start_utt(m_Module->decoder);
     m_UttStarted = false;
-    qDebug() << "recognition thread createdЫ";
+    qDebug() << "recognition thread created";
 }
 
 RecThread::~RecThread()
@@ -25,7 +32,7 @@ void RecThread::run()
 
     if(!m_Socket->setSocketDescriptor(this->m_SocketDescriptor))
     {
-        m_Module->inUse = false;
+        releaseModule();
         emit error(m_Socket->error());
         return;
     }
@@ -51,15 +58,48 @@ void RecThread::readyRead()
 
 void RecThread::disconnected()
 {
-    m_Module->inUse = false;
+    releaseModule();
     m_Socket->deleteLater();
     exit(0);
 }
 
-void RecThread::processData(const QByteArray& data, bool final)
+void RecThread::processDic(const QByteArray &data)
+{
+    processData(QByteArray()); //finalize current stream
+
+    if (data.size()==0){
+        if (m_CustomDicLoaded){
+            qDebug() << "restore default dictionary";
+            ps_end_utt(m_Module->decoder);
+            ps_load_dict(m_Module->decoder,m_DefaultDicFileName.toUtf8().constData(),NULL,NULL);
+            ps_start_utt(m_Module->decoder);
+            m_CustomDicLoaded = false;
+        }
+    }
+    else{
+        qDebug() << "set custom dictionary";
+        QTemporaryFile file;
+        if (file.open()) {
+            file.write(data.constData(),data.size());
+            file.flush();
+            file.close();
+            m_CustomDicLoaded = true;
+            qDebug() << file.fileName().toUtf8();
+            ps_end_utt(m_Module->decoder);
+            ps_load_dict(m_Module->decoder,file.fileName().toUtf8().constData(),NULL,NULL);
+            ps_start_utt(m_Module->decoder);
+        }
+        else{
+            qCritical() << "can't create temporary dictionary file";
+        }
+    }
+}
+
+
+void RecThread::processData(const QByteArray& data)
 {
     QVector<sVariant> words;
-    if (!final){
+    if (data.size()>0){
         ps_process_raw(m_Module->decoder, (const int16*)data.constData(), data.size() / 2, FALSE, FALSE);
         m_InSpeech = ps_get_in_speech(m_Module->decoder)!=0;
     }
@@ -120,10 +160,18 @@ bool RecThread::processInput()
 {
     switch(m_State){
     case WAIT_HEADER:{
-        if (m_Data.size()>=PACKAGE_IN_ID.size()){
-            if (m_Data.startsWith(PACKAGE_IN_ID)){
-                m_Data.remove(0,PACKAGE_IN_ID.size());
+        if (m_Data.size()>=PACKAGE_ID_SIZE){
+            if (m_Data.startsWith(PACKAGE_IN_STREAM_ID)){
+                m_Data.remove(0,PACKAGE_IN_STREAM_ID.size());
                 m_State = WAIT_SIZE;
+                m_Type = STREAM;
+                return true;
+            }
+            else
+            if (m_Data.startsWith(PACKAGE_IN_DIC_ID)){
+                m_Data.remove(0,PACKAGE_IN_DIC_ID.size());
+                m_State = WAIT_SIZE;
+                m_Type = DICTIONARY;
                 return true;
             }
             else{
@@ -141,7 +189,15 @@ bool RecThread::processInput()
             if (m_Size<=MAX_DATA_SIZE){
                 if (m_Size==0){
                     m_State = WAIT_HEADER;
-                    processData(m_Data,true);
+                    switch(m_Type){
+                        case STREAM:{
+                            processData(QByteArray());
+                        }break;
+                        case DICTIONARY:{
+                            processDic(QByteArray());
+                        }break;
+                    }
+
                     return false;
                 }
                 else{
@@ -157,7 +213,14 @@ bool RecThread::processInput()
     }break;
     case WAIT_DATA:{
         if ((unsigned int)m_Data.size()>=m_Size){
-            processData(m_Data.mid(0,m_Size),false);
+            switch(m_Type){
+                case STREAM:{
+                    processData(m_Data.mid(0,m_Size));
+                }break;
+                case DICTIONARY:{
+                    processDic(m_Data.mid(0,m_Size));
+                }break;
+            }
             m_Data.remove(0,m_Size);
             m_State = WAIT_HEADER;
             return true;
@@ -168,10 +231,18 @@ bool RecThread::processInput()
     return false;
 }
 
+void RecThread::releaseModule()
+{
+    if (m_CustomDicLoaded)
+        ps_load_dict(m_Module->decoder,m_DefaultDicFileName.toUtf8().constData(),NULL,NULL);
+    m_Module->inUse = false;
+}
+
 void RecThread::errorFinish()
 {
-    m_Module->inUse = false;
+    releaseModule();
     m_Socket->disconnectFromHost();
     m_Socket->deleteLater();
     exit(0);
 }
+

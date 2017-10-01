@@ -40,7 +40,7 @@ void MainTCPServer::onTimeout()
 }
 
 sRecognitionModule *MainTCPServer::getAvailableDecoder()
-{
+{    
     for (int i = 0; i<m_ActiveDecorders.size(); i++){
         sRecognitionModule* mod = m_ActiveDecorders.at(i);
         if (!mod->inUse){
@@ -56,9 +56,11 @@ MainTCPServer::MainTCPServer(cmd_ln_t *config, int port)
     , m_DecoderConfig(config)
     , m_Port(port)
 {
+    m_DefaultDicFileName = cmd_ln_str_r(m_DecoderConfig, "-dict");
+
     updateActiveDecoders(true);
 
-    connect(&m_GCTimer,SIGNAL(timeout()),this,SLOT(onTimeout));
+    connect(&m_GCTimer,SIGNAL(timeout()),this,SLOT(onTimeout()));
     m_GCTimer.start(DELETE_TIMEOUT_STEP);
 }
 
@@ -81,7 +83,7 @@ void MainTCPServer::incomingConnection(qintptr socketDescriptor)
     mod->inUse = true;
     mod->deleteCounter = 0;
 
-    RecThread *thread = new RecThread(socketDescriptor, mod, this);
+    RecThread *thread = new RecThread(socketDescriptor, mod, m_DefaultDicFileName, this);
     connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
 
     thread->start();

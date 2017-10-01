@@ -12,10 +12,11 @@ class MainTCPServer : public QTcpServer
     Q_OBJECT
 protected:
     static const int DELETE_TIMEOUT = 86400000;
-    static const int DELETE_TIMEOUT_STEP = 10000;
+    static const int DELETE_TIMEOUT_STEP = 600000;
     QList<sRecognitionModule*> m_ActiveDecorders;
     QTimer              m_GCTimer;
 
+    QString             m_DefaultDicFileName;
     cmd_ln_t *          m_DecoderConfig;
     sRecognitionModule* getAvailableDecoder();
 protected:
